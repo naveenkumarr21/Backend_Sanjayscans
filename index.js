@@ -7,9 +7,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors({
-    origin: 'https://sanjayscans.in', // Allow your frontend
-}));
+app.use(cors()); // Allow all origins for testing
 app.use(express.json());
 
 // PostgreSQL connection
@@ -27,6 +25,11 @@ pool.connect((err) => {
     }
 });
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'OK', message: 'Backend is running' });
+});
+
 // API endpoint to handle booking form submission
 app.post('/api/book-test', async (req, res) => {
     console.log('Received request:', req.body);
@@ -34,7 +37,7 @@ app.post('/api/book-test', async (req, res) => {
 
     // Basic validation
     if (!name || !phone || !address || !testType) {
-        console.log('Validation failed');
+        console.log('Validation failed: Missing fields');
         return res.status(400).json({ message: 'All fields are required' });
     }
 
@@ -52,11 +55,18 @@ app.post('/api/book-test', async (req, res) => {
         res.status(201).json({ message: 'Booking created successfully', booking: result.rows[0] });
     } catch (error) {
         console.error('Error inserting booking:', error.stack);
-        res.status(500).json({ message: 'Server error' });
+        res.status(500).json({ message: 'Server error', error: error.message });
     }
 });
 
 // Start the server
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
+});
+
+// Handle graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('Shutting down server...');
+    await pool.end();
+    process.exit(0);
 });
