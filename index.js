@@ -50,7 +50,7 @@ app.post('/api/book-test', async (req, res) => {
 
     try {
         // Insert booking into database
-        console.log('Executing query...');
+        console.log('Executing database query...');
         const query = `
             INSERT INTO bookings (name, phone, address, test_type)
             VALUES ($1, $2, $3, $4)
@@ -59,15 +59,21 @@ app.post('/api/book-test', async (req, res) => {
         const values = [name, phone, address, testType];
 
         const result = await pool.query(query, values);
-        console.log('Query success:', result.rows[0]);
+        console.log('Database query success:', result.rows[0]);
 
         // Send SMS notifications
         const FAST2SMS_API_KEY = process.env.FAST2SMS_API_KEY;
-        const ADMIN_PHONE = process.env.ADMIN_PHONE; // e.g., '9876543210'
+        const ADMIN_PHONE = process.env.ADMIN_PHONE;
 
         if (!FAST2SMS_API_KEY || !ADMIN_PHONE) {
-            console.error('Fast2SMS API key or admin phone number missing');
+            console.error('Configuration error: Fast2SMS API key or admin phone number missing');
             return res.status(500).json({ message: 'Server configuration error' });
+        }
+
+        // Validate admin phone number
+        if (!/^[0-9]{10}$/.test(ADMIN_PHONE)) {
+            console.error('Configuration error: Invalid admin phone number');
+            return res.status(500).json({ message: 'Invalid admin phone number in server configuration' });
         }
 
         // Prepare SMS messages
@@ -75,47 +81,71 @@ app.post('/api/book-test', async (req, res) => {
         const userMessage = `Dear ${name}, your ${testType} booking is confirmed. We'll contact you soon. - Sanjay Scans`;
 
         // Send SMS to admin
-        await axios.post(
-            'https://www.fast2sms.com/dev/bulkV2',
-            {
-                route: 'q', // Quick SMS route
-                sender_id: 'FSTSMS', // Default sender ID
-                message: adminMessage,
-                language: 'english',
-                numbers: ADMIN_PHONE,
-            },
-            {
-                headers: {
-                    authorization: FAST2SMS_API_KEY,
-                    'Content-Type': 'application/json',
+        console.log('Sending SMS to admin:', ADMIN_PHONE);
+        try {
+            const adminResponse = await axios.post(
+                'https://www.fast2sms.com/dev/bulkV2',
+                {
+                    route: 'q',
+                    sender_id: 'FSTSMS',
+                    message: adminMessage,
+                    language: 'english',
+                    numbers: ADMIN_PHONE,
                 },
-            }
-        );
+                {
+                    headers: {
+                        authorization: FAST2SMS_API_KEY,
+                        'Content-Type': 'application/json',
+                    },
+                }
+            );
+            console.log('Admin SMS response:', adminResponse.data);
+        } catch (adminError) {
+            console.error('Admin SMS error:', {
+                message: adminError.message,
+                response: adminError.response ? adminError.response.data : null,
+            });
+            throw adminError; // Re-throw to trigger catch block
+        }
 
         // Send SMS to user
-        await axios.post(
-            'https://www.fast2sms.com/dev/bulkV2',
-            {
-                route: 'q', // Quick SMS route
-                sender_id: 'FSTSMS', // Default sender ID
-                message: userMessage,
-                language: 'english',
-                numbers: phone,
-            },
-            {
-                headers: {
-                    authorization: FAST2SMS_API_KEY,
-                    'Content-Type': 'application/json',
+        console.log('Sending SMS to user:', phone);
+        try {
+            const userResponse = await axios.post(
+                'https://www.fast2sms.com/dev/bulkV2',
+                {
+                    route: 'q',
+                    sender_id: 'FSTSMS',
+                    message: userMessage,
+                    language: 'english',
+                    numbers: phone,
                 },
-            }
-        );
+                {
+                    headers: {
+                        authorization: FAST2SMS_API_KEY,
+                        'Content-Type': 'application/json',
+                    },
+                }
+            );
+            console.log('User SMS response:', userResponse.data);
+        } catch (userError) {
+            console.error('User SMS error:', {
+                message: userError.message,
+                response: userError.response ? userError.response.data : null,
+            });
+            throw userError; // Re-throw to trigger catch block
+        }
 
         res.status(201).json({
             message: 'Booking created successfully, SMS notifications sent',
             booking: result.rows[0],
         });
     } catch (error) {
-        console.error('Error processing booking:', error.stack);
+        console.error('Error processing booking:', {
+            message: error.message,
+            stack: error.stack,
+            response: error.response ? error.response.data : null,
+        });
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 });
